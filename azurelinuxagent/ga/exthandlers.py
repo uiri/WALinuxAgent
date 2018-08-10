@@ -345,6 +345,8 @@ class ExtHandlersHandler(object):
                 return
 
             self.log_etag = True
+            if self.last_etag != etag:
+                self.log_process = True
 
             ext_handler_i.logger.info("Target handler state: {0}", state)
             if state == u"enabled":
@@ -358,6 +360,7 @@ class ExtHandlersHandler(object):
                 raise ExtensionError(message)
         except ExtensionError as e:
             self.handle_handle_ext_handler_error(ext_handler_i, e, e.code)
+            self.log_process = False
         except Exception as e:
             self.handle_handle_ext_handler_error(ext_handler_i, e)
 
@@ -376,50 +379,50 @@ class ExtHandlersHandler(object):
             ext_handler_i.logger.warn(msg)
     
     def handle_enable(self, ext_handler_i):
-        self.log_process = True
         old_ext_handler_i = ext_handler_i.get_installed_ext_handler()
 
         handler_state = ext_handler_i.get_handler_state()
-        ext_handler_i.logger.info("[Enable] current handler state is: {0}",
-                                  handler_state.lower())
+        if self.log_process:
+            ext_handler_i.logger.info("[Enable] current handler state is: {0}",
+                                      handler_state.lower())
         if handler_state == ExtHandlerState.NotInstalled:
             ext_handler_i.set_handler_state(ExtHandlerState.NotInstalled)
             ext_handler_i.download()
             ext_handler_i.update_settings()
             if old_ext_handler_i is None:
-                ext_handler_i.install()
+                ext_handler_i.install(self.log_process)
             elif ext_handler_i.version_ne(old_ext_handler_i):
-                old_ext_handler_i.disable()
+                old_ext_handler_i.disable(self.log_process)
                 ext_handler_i.copy_status_files(old_ext_handler_i)
                 if ext_handler_i.version_gt(old_ext_handler_i):
                     ext_handler_i.update()
                 else:
                     old_ext_handler_i.update(version=ext_handler_i.ext_handler.properties.version)
-                old_ext_handler_i.uninstall()
+                old_ext_handler_i.uninstall(self.log_process)
                 old_ext_handler_i.rm_ext_handler_dir()
                 ext_handler_i.update_with_install()
         else:
             ext_handler_i.update_settings()
 
-        ext_handler_i.enable() 
+        ext_handler_i.enable(self.log_process)
 
     def handle_disable(self, ext_handler_i):
-        self.log_process = True
         handler_state = ext_handler_i.get_handler_state()
-        ext_handler_i.logger.info("[Disable] current handler state is: {0}",
-                                  handler_state.lower())
+        if self.log_process:
+            ext_handler_i.logger.info("[Disable] current handler state is: {0}",
+                                      handler_state.lower())
         if handler_state == ExtHandlerState.Enabled:
-            ext_handler_i.disable()
+            ext_handler_i.disable(self.log_process)
 
     def handle_uninstall(self, ext_handler_i):
-        self.log_process = True
         handler_state = ext_handler_i.get_handler_state()
-        ext_handler_i.logger.info("[Uninstall] current handler state is: {0}",
-                                  handler_state.lower())
+        if self.log_process:
+            ext_handler_i.logger.info("[Uninstall] current handler state is: {0}",
+                                      handler_state.lower())
         if handler_state != ExtHandlerState.NotInstalled:
             if handler_state == ExtHandlerState.Enabled:
-                ext_handler_i.disable()
-            ext_handler_i.uninstall()
+                ext_handler_i.disable(self.log_process)
+            ext_handler_i.uninstall(self.log_process)
         ext_handler_i.rm_ext_handler_dir()
 
     def report_ext_handlers_status(self):
@@ -731,39 +734,43 @@ class ExtHandlerInstance(object):
         # Save HandlerEnvironment.json
         self.create_handler_env()
 
-    def enable(self):
+    def enable(self, log_proc=True):
         self.set_operation(WALAEventOperation.Enable)
         man = self.load_manifest()
         enable_cmd = man.get_enable_command()
-        self.logger.info("Enable extension [{0}]".format(enable_cmd))
+        if log_proc:
+            self.logger.info("Enable extension [{0}]".format(enable_cmd))
         self.launch_command(enable_cmd, timeout=300, extension_error_code=1009)
         self.set_handler_state(ExtHandlerState.Enabled)
         self.set_handler_status(status="Ready", message="Plugin enabled")
 
-    def disable(self):
+    def disable(self, log_proc=True):
         self.set_operation(WALAEventOperation.Disable)
         man = self.load_manifest()
         disable_cmd = man.get_disable_command()
-        self.logger.info("Disable extension [{0}]".format(disable_cmd))
+        if log_proc:
+            self.logger.info("Disable extension [{0}]".format(disable_cmd))
         self.launch_command(disable_cmd, timeout=900,
                             extension_error_code=1010)
         self.set_handler_state(ExtHandlerState.Installed)
         self.set_handler_status(status="NotReady", message="Plugin disabled")
 
-    def install(self):
+    def install(self, log_proc=True):
         man = self.load_manifest()
         install_cmd = man.get_install_command()
-        self.logger.info("Install extension [{0}]".format(install_cmd))
+        if log_proc:
+            self.logger.info("Install extension [{0}]".format(install_cmd))
         self.set_operation(WALAEventOperation.Install)
         self.launch_command(install_cmd, timeout=900, extension_error_code=1007)
         self.set_handler_state(ExtHandlerState.Installed)
 
-    def uninstall(self):
+    def uninstall(self, log_proc=True):
         try:
             self.set_operation(WALAEventOperation.UnInstall)
             man = self.load_manifest()
             uninstall_cmd = man.get_uninstall_command()
-            self.logger.info("Uninstall extension [{0}]".format(uninstall_cmd))
+            if log_proc:
+                self.logger.info("Uninstall extension [{0}]".format(uninstall_cmd))
             self.launch_command(uninstall_cmd)
         except ExtensionError as e:
             self.report_event(message=ustr(e), is_success=False)
